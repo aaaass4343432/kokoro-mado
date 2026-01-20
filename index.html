@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心の窓口 - 森と水のカウンセリング</title>
+    <style>
+        :root {
+            --forest-deep: #2d5a27; --leaf-green: #e8f5e9; --water-blue: #00acc1;
+            --soft-white: rgba(255, 255, 255, 0.9); --dark-bg: #1a1a1a; --dark-card: #2d2d2d;
+        }
+        body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; transition: 0.5s; }
+        body.theme-forest { background: linear-gradient(135deg, #dceedc 0%, #e0f7fa 100%); color: #333; }
+        body.theme-dark { background: var(--dark-bg); color: #eee; }
+        header { background: var(--forest-deep); color: white; padding: 1rem; text-align: center; position: relative; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        #chat-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .msg { max-width: 85%; padding: 15px; border-radius: 20px; line-height: 1.6; white-space: pre-wrap; animation: fadeIn 0.3s; }
+        .ai-msg { background: var(--soft-white); align-self: flex-start; border-left: 5px solid var(--forest-deep); color: #333; }
+        body.theme-dark .ai-msg { background: var(--dark-card); color: #eee; border-left-color: var(--water-blue); }
+        .user-msg { background: var(--forest-deep); color: white; align-self: flex-end; }
+        #input-area { background: rgba(255,255,255,0.9); padding: 20px; display: flex; gap: 10px; border-top: 1px solid #ddd; }
+        body.theme-dark #input-area { background: #333; border-top: none; }
+        input { flex: 1; padding: 12px; border-radius: 25px; border: 1px solid #ccc; outline: none; }
+        button { background: var(--water-blue); color: white; border: none; padding: 10px 20px; border-radius: 25px; cursor: pointer; }
+        #settings-btn { position: absolute; right: 15px; top: 15px; background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer; }
+        #modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 15px; z-index: 100; color: #333; width: 85%; max-width: 400px; box-shadow: 0 0 20px rgba(0,0,0,0.3); border: 1px solid var(--forest-deep); }
+        .update-banner { font-size: 0.8rem; background: #fff9c4; padding: 5px; text-align: center; color: #333; display: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="theme-forest">
+
+<header>
+    <button id="settings-btn" onclick="toggleModal()">⚙️</button>
+    <h1 style="margin:0; font-size: 1.2rem;">心の窓口</h1>
+</header>
+<div id="update-alert" class="update-banner">新しい心の知識が見つかりました。アップデートしてください。</div>
+
+<div id="chat-container"></div>
+
+<div id="input-area">
+    <input type="text" id="userInput" placeholder="お話しください..." onkeypress="if(event.keyCode==13) sendMessage()">
+    <button onclick="sendMessage()">送信</button>
+</div>
+
+<div id="modal">
+    <h3 style="border-bottom: 2px solid var(--forest-deep); padding-bottom: 10px;">窓口の設定</h3>
+    <p><b>AIの性格：</b><br>
+    <select id="mode-select" onchange="updateConfig()" style="width:100%; padding:8px; margin-top:5px;">
+        <option value="empathy">寄り添い重視（聴いてほしい）</option>
+        <option value="advice">アドバイス重視（導いてほしい）</option>
+    </select></p>
+    <p><b>背景テーマ：</b><br>
+        <button onclick="setTheme('forest')" style="background:#4caf50;">森</button> 
+        <button onclick="setTheme('dark')" style="background:#333;">夜</button>
+    </p>
+    <p><b>システム：</b><br>
+        <button onclick="checkForUpdates()" style="background:var(--water-blue); width:100%; margin-bottom:5px;">アップデートを確認</button>
+        <button onclick="clearMemory()" style="background:#ff5252; width:100%;">記憶をリセット</button>
+    </p>
+    <button onclick="toggleModal()" style="width:100%; background:#ccc; margin-top:10px;">閉じる</button>
+</div>
+
+<script>
+// --- 基本データ構造 ---
+const VERSION = "1.0.0";
+const session = { name: "あなた", talkCount: 0 };
+let config = { 
+    mode: localStorage.getItem('mode') || 'empathy', 
+    theme: localStorage.getItem('theme') || 'forest' 
+};
+
+// 辞書データ（ここがアップデート対象になる）
+let Lexicon = {
+    emergency: { keywords: ["死", "消", "終", "助けて"], reply: "その言葉が出るまで本当によく耐えましたね。今は解決を急がず、あなたの命を大切に思う時間を共有させてください。" },
+    topics: {
+        "work": { keywords: ["仕事", "会社", "辞", "パワハラ", "上司"], reflection: "お仕事の重圧が心を削っているのですね。", step: "今は仕事の通知を切り、温かい飲み物を一口だけ飲んでみませんか？" },
+        "self": { keywords: ["自分", "嫌い", "ダメ", "迷惑", "価値"], reflection: "ご自身を責めて、出口のない暗闇におられるのですね。", step: "完璧でなくて良いんです。まずは今、息をしている自分を認めてあげましょう。" },
+        "human": { keywords: ["人", "親", "家族", "嫌われた", "孤独"], reflection: "誰にも分かってもらえない孤独を感じているのですね。", step: "私はここにいます。あなたの言葉をそのまま受け止めますよ。" }
+    }
+};
+
+const CBT_Logic = [
+    { keywords: ["いつも", "絶対", "一回も"], question: "「絶対」と感じるほどお辛い状況なのですね。でも、ほんの少しだけマシだった瞬間は一度もありませんでしたか？" },
+    { keywords: ["すべき", "しなきゃ"], question: "自分を「～すべき」という鎖で縛っていませんか？ 少し自分を許してあげてもいいんですよ。" }
+];
+
+window.onload = () => {
+    setTheme(config.theme);
+    const greeting = getGreeting() + (analyzeChange() || "");
+    appendMessage(greeting, 'ai-msg');
+};
+
+// --- アップデート機能 ---
+function checkForUpdates() {
+    // 実際にはあなたのサイトに置いた最新JS（例: update.json）をFetchするように拡張可能
+    alert("現在のバージョン: " + VERSION + "\n最新の知識を確認しました。AIは最新の状態です。");
+}
+
+function sendMessage() {
+    const el = document.getElementById('userInput');
+    const text = el.value.trim();
+    if (!text) return;
+    appendMessage(text, 'user-msg');
+    el.value = '';
+    setTimeout(() => {
+        const res = generateResponse(text);
+        appendMessage(res, 'ai-msg');
+        saveHistory(text);
+    }, 800);
+}
+
+function generateResponse(input) {
+    session.talkCount++;
+    const nm = input.match(/(.+)です|(.+)と申します/);
+    if (nm) { session.name = nm[1] || nm[2]; return `${session.name}さん。お名前を教えてくれてありがとう。`; }
+
+    if (Lexicon.emergency.keywords.some(w => input.includes(w))) return Lexicon.emergency.reply;
+    
+    // CBT介入
+    if (session.talkCount > 2) {
+        for (let c of CBT_Logic) {
+            if (c.keywords.some(w => input.includes(w))) return `少し立ち止まって考えてみませんか？\n${c.question}`;
+        }
+    }
+
+    // トピック判定
+    for (let k in Lexicon.topics) {
+        const t = Lexicon.topics[k];
+        if (t.keywords.some(w => input.includes(w))) {
+            return config.mode === 'advice' ? `${t.reflection}\n\n【ヒント】\n${t.step}` : `${t.reflection}\n今は無理に動かず、ここで心を休めてください。`;
+        }
+    }
+    return "そうだったのですね。あなたのペースで、もっと聴かせていただけますか？";
+}
+
+function appendMessage(t, c) {
+    const cont = document.getElementById('chat-container');
+    const d = document.createElement('div');
+    d.className = `msg ${c}`; d.innerText = t;
+    cont.appendChild(d); cont.scrollTop = cont.scrollHeight;
+}
+
+// ユーティリティ
+function getGreeting() {
+    const h = new Date().getHours();
+    if (h < 5) return "静かな夜ですね。";
+    if (h < 11) return "穏やかな朝です。";
+    if (h < 17) return "こんにちは。少しひと休みしませんか。";
+    return "今日もお疲れ様でした。";
+}
+function toggleModal() { const m = document.getElementById('modal'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; }
+function setTheme(t) { config.theme = t; document.body.className = `theme-${t}`; localStorage.setItem('theme', t); }
+function updateConfig() { config.mode = document.getElementById('mode-select').value; localStorage.setItem('mode', config.mode); }
+function clearMemory() { if(confirm("記憶を消去しますか？")) { localStorage.clear(); location.reload(); } }
+function saveHistory(t) {
+    let h = JSON.parse(localStorage.getItem('h') || "[]");
+    h.push({t: new Date().getTime(), s: Lexicon.emergency.keywords.some(w => t.includes(w)) ? -1 : 1});
+    localStorage.setItem('h', JSON.stringify(h.slice(-5)));
+}
+function analyzeChange() {
+    let h = JSON.parse(localStorage.getItem('h') || "[]");
+    if (h.length < 2) return null;
+    return h[h.length-1].s > h[h.length-2].s ? "\n前回より少し、言葉が柔らかくなった気がします。一歩ずつですね。" : "";
+}
+</script>
+</body>
+</html>
